@@ -3,14 +3,21 @@ package com.example;
 import com.google.inject.Provides;
 import java.awt.image.BufferedImage;
 import java.time.Instant;
+import java.util.EnumMap;
+import java.util.Map;
 import javax.inject.Inject;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
-import net.runelite.api.MenuAction;
-import net.runelite.api.events.ChatMessage;
-import net.runelite.api.events.MenuOptionClicked;
+import net.runelite.api.GameObject;
+import net.runelite.api.GameState;
+import net.runelite.api.events.GameObjectDespawned;
+import net.runelite.api.events.GameObjectSpawned;
+import net.runelite.api.events.GameStateChanged;
+import net.runelite.api.events.GameTick;
+import net.runelite.api.events.VarbitChanged;
+import net.runelite.api.gameval.ItemID;
+import net.runelite.api.gameval.ObjectID;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.game.ItemManager;
@@ -22,8 +29,8 @@ import net.runelite.client.ui.overlay.infobox.InfoBoxManager;
 @Slf4j
 @PluginDescriptor(
 	name = "Melting Pot Tracker",
-	description = "Tracks and displays the contents of the Blast Furnace melting pot. Use the in-game 'Check' option on the melting pot to update the tracked contents.",
-	tags = {"osrs", "blast", "furnace", "smithing", "minigame", "melting", "pot"}
+	description = "Tracks melting pot contents at the Blast Furnace using conveyor belt deposit varbits.",
+	tags = {"osrs", "blast", "furnace", "smithing", "minigame", "melting", "pot", "conveyor"}
 )
 public class MeltingPotTrackerPlugin extends Plugin
 {
@@ -48,25 +55,36 @@ public class MeltingPotTrackerPlugin extends Plugin
 	private MeltingPotInfoBox infoBox;
 
 	@Getter
-	private String lastContents = "Unknown - Use 'Check' option on melting pot";
+	private GameObject meltingPot;
+
+	@Getter
+	private GameObject conveyorBelt;
+
+	private final Map<MeltingPotOres, Integer> oreCounts = new EnumMap<>(MeltingPotOres.class);
+
+	@Getter
+	private String lastContents = "Not at Blast Furnace";
 
 	@Getter
 	private String lastContentsShort = "";
 
-	private Instant lastChecked = null;
+	@Getter
+	private int totalOreCount;
+
+	private Instant lastUpdated = null;
 
 	@Override
 	protected void startUp()
 	{
 		log.info("Melting Pot Tracker started!");
 		overlayManager.add(overlay);
+		resetOreCounts();
 
 		if (config.showInfobox())
 		{
-			BufferedImage icon = itemManager.getImage(net.runelite.api.ItemID.COAL);
+			BufferedImage icon = itemManager.getImage(ItemID.COAL);
 			if (icon == null)
 			{
-				// Fallback, though should not happen
 				icon = new BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB);
 			}
 			infoBox = new MeltingPotInfoBox(icon, this, itemManager);
@@ -85,6 +103,8 @@ public class MeltingPotTrackerPlugin extends Plugin
 			infoBoxManager.removeInfoBox(infoBox);
 			infoBox = null;
 		}
+		meltingPot = null;
+		conveyorBelt = null;
 	}
 
 	@Provides
@@ -93,74 +113,172 @@ public class MeltingPotTrackerPlugin extends Plugin
 		return configManager.getConfig(MeltingPotTrackerConfig.class);
 	}
 
-	private void updateInfoBox()
+	@Subscribe
+	public void onGameObjectSpawned(GameObjectSpawned event)
 	{
-		if (infoBox != null)
+		GameObject gameObject = event.getGameObject();
+		switch (gameObject.getId())
 		{
-			infoBox.updateContents(lastContents, lastChecked);
+			case ObjectID.BLAST_FURNACE_CHIMNEY:
+				meltingPot = gameObject;
+				refreshContentsFromVarbits();
+				break;
+			case ObjectID.BLAST_FURNACE_CONVEYER_BELT_CLICKABLE:
+				conveyorBelt = gameObject;
+				refreshContentsFromVarbits();
+				break;
 		}
 	}
 
 	@Subscribe
-	public void onChatMessage(ChatMessage event)
+	public void onGameObjectDespawned(GameObjectDespawned event)
 	{
-		if (event.getType() != ChatMessageType.GAMEMESSAGE && event.getType() != ChatMessageType.SPAM)
+		GameObject gameObject = event.getGameObject();
+		switch (gameObject.getId())
+		{
+			case ObjectID.BLAST_FURNACE_CHIMNEY:
+				meltingPot = null;
+				break;
+			case ObjectID.BLAST_FURNACE_CONVEYER_BELT_CLICKABLE:
+				conveyorBelt = null;
+				break;
+		}
+
+		if (!isAtBlastFurnace())
+		{
+			lastContents = "Not at Blast Furnace";
+			lastContentsShort = "";
+			updateInfoBox();
+		}
+	}
+
+	@Subscribe
+	public void onGameStateChanged(GameStateChanged event)
+	{
+		if (event.getGameState() == GameState.LOADING)
+		{
+			meltingPot = null;
+			conveyorBelt = null;
+		}
+	}
+
+	@Subscribe
+	public void onVarbitChanged(VarbitChanged event)
+	{
+		if (!isAtBlastFurnace())
 		{
 			return;
 		}
 
-		String msg = event.getMessage();
-		String lowerMsg = msg.toLowerCase();
-
-		// Capture any message that seems related to melting pot or blast furnace contents
-		if (lowerMsg.contains("melting pot") || 
-			(lowerMsg.contains("blast furnace") && (lowerMsg.contains("contains") || lowerMsg.contains("ore") || lowerMsg.contains("coal") || lowerMsg.contains("added") || lowerMsg.contains("check"))))
+		for (MeltingPotOres ore : MeltingPotOres.values())
 		{
-			lastContents = msg;
-			lastChecked = Instant.now();
-			
-			// Create a short version for overlay
-			if (msg.length() > 60)
+			if (event.getVarbitId() == ore.getVarbit())
 			{
-				lastContentsShort = msg.substring(0, 57) + "...";
+				refreshContentsFromVarbits();
+				return;
 			}
-			else
-			{
-				lastContentsShort = msg;
-			}
-
-			updateInfoBox();
-			log.debug("Updated melting pot contents from chat: {}", msg);
 		}
 	}
 
 	@Subscribe
-	public void onMenuOptionClicked(MenuOptionClicked event)
+	public void onGameTick(GameTick event)
 	{
-		// Detect when player clicks "Check" on the melting pot (object ID 9098)
-		if (event.getMenuAction() == MenuAction.GAME_OBJECT_FIRST_OPTION ||
-			event.getMenuAction() == MenuAction.GAME_OBJECT_SECOND_OPTION ||
-			event.getMenuAction() == MenuAction.GAME_OBJECT_THIRD_OPTION ||
-			event.getMenuAction() == MenuAction.GAME_OBJECT_FOURTH_OPTION ||
-			event.getMenuAction() == MenuAction.GAME_OBJECT_FIFTH_OPTION)
+		// Fallback poll in case a varbit change is missed
+		if (isAtBlastFurnace() && client.getTickCount() % 10 == 0)
 		{
-			if (event.getId() == 9098 && "Check".equalsIgnoreCase(event.getMenuOption()))
-			{
-				lastContents = "Checking melting pot... (contents will update shortly)";
-				lastContentsShort = "Checking...";
-				lastChecked = Instant.now();
-				updateInfoBox();
-				log.debug("Player initiated Check on melting pot");
-			}
+			refreshContentsFromVarbits();
 		}
 	}
 
-	// Optional: reset method if needed, exposed for future config button or hotkey
+	private boolean isAtBlastFurnace()
+	{
+		return conveyorBelt != null || meltingPot != null;
+	}
+
+	private void refreshContentsFromVarbits()
+	{
+		if (!isAtBlastFurnace())
+		{
+			return;
+		}
+
+		int total = 0;
+		boolean changed = false;
+		StringBuilder full = new StringBuilder();
+		StringBuilder shortSummary = new StringBuilder();
+
+		for (MeltingPotOres ore : MeltingPotOres.values())
+		{
+			int amount = client.getVarbitValue(ore.getVarbit());
+			Integer previous = oreCounts.put(ore, amount);
+			if (previous == null || previous != amount)
+			{
+				changed = true;
+			}
+
+			if (amount > 0)
+			{
+				total += amount;
+				String name = itemManager.getItemComposition(ore.getItemId()).getName();
+				full.append(name).append(": ").append(amount).append('\n');
+				if (shortSummary.length() > 0)
+				{
+					shortSummary.append(", ");
+				}
+				shortSummary.append(name).append(": ").append(amount);
+			}
+		}
+
+		if (!changed && total == totalOreCount)
+		{
+			return;
+		}
+
+		totalOreCount = total;
+		lastUpdated = Instant.now();
+
+		if (total == 0)
+		{
+			lastContents = "Melting pot is empty";
+			lastContentsShort = "Empty";
+		}
+		else
+		{
+			full.append("\nTotal: ").append(total);
+			lastContents = full.toString().trim();
+			lastContentsShort = shortSummary.length() > 60
+				? shortSummary.substring(0, 57) + "..."
+				: shortSummary.toString();
+		}
+
+		updateInfoBox();
+		log.debug("Updated melting pot from varbits: {} total", total);
+	}
+
+	private void updateInfoBox()
+	{
+		if (infoBox != null)
+		{
+			infoBox.updateContents(lastContents, lastUpdated);
+		}
+	}
+
+	private void resetOreCounts()
+	{
+		oreCounts.clear();
+		for (MeltingPotOres ore : MeltingPotOres.values())
+		{
+			oreCounts.put(ore, 0);
+		}
+		totalOreCount = 0;
+	}
+
 	public void resetTracker()
 	{
-		lastContents = "Unknown - Use 'Check' option on melting pot";
-		lastContentsShort = "";
-		lastChecked = null;
+		resetOreCounts();
+		lastContents = isAtBlastFurnace() ? "Melting pot is empty" : "Not at Blast Furnace";
+		lastContentsShort = isAtBlastFurnace() ? "Empty" : "";
+		lastUpdated = null;
 		updateInfoBox();
 	}
 }

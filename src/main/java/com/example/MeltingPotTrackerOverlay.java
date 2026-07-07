@@ -9,7 +9,6 @@ import net.runelite.api.Client;
 import net.runelite.api.GameObject;
 import net.runelite.api.Perspective;
 import net.runelite.api.Point;
-import net.runelite.api.Tile;
 import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayLayer;
 import net.runelite.client.ui.overlay.OverlayPosition;
@@ -39,21 +38,18 @@ public class MeltingPotTrackerOverlay extends Overlay
 			return null;
 		}
 
-		GameObject meltingPot = findMeltingPot();
+		GameObject meltingPot = plugin.getMeltingPot();
 		if (meltingPot == null)
 		{
 			return null;
 		}
 
-		// Get canvas location for the object
 		Point canvasLoc = Perspective.localToCanvas(client, meltingPot.getLocalLocation(), client.getPlane());
 		if (canvasLoc == null)
 		{
 			return null;
 		}
 
-		// Draw highlight polygon around the object (simple bounding box approx)
-		// For better, could use object clickbox but simple rectangle for now
 		Rectangle rect = new Rectangle(canvasLoc.getX() - 30, canvasLoc.getY() - 40, 60, 80);
 		java.awt.Polygon poly = new java.awt.Polygon();
 		poly.addPoint(rect.x, rect.y);
@@ -62,54 +58,21 @@ public class MeltingPotTrackerOverlay extends Overlay
 		poly.addPoint(rect.x, rect.y + rect.height);
 		OverlayUtil.renderPolygon(graphics, poly, config.highlightColor());
 
-		// Draw text
 		String text = "Melting Pot";
 		String subText = plugin.getLastContentsShort();
-		Color textColor = Color.WHITE;
-
-		OverlayUtil.renderTextLocation(graphics, 
-			new Point(canvasLoc.getX(), canvasLoc.getY() - 50), 
-			text, textColor);
-
-		if (subText != null && !subText.isEmpty())
+		if (subText == null || subText.isEmpty())
 		{
-			OverlayUtil.renderTextLocation(graphics, 
-				new Point(canvasLoc.getX(), canvasLoc.getY() - 35), 
-				subText, Color.YELLOW);
+			subText = plugin.getTotalOreCount() + " ore";
 		}
 
-		return null;
-	}
+		OverlayUtil.renderTextLocation(graphics,
+			new Point(canvasLoc.getX(), canvasLoc.getY() - 50),
+			text, Color.WHITE);
 
-	private GameObject findMeltingPot()
-	{
-		if (client.getScene() == null || client.getScene().getTiles() == null)
-		{
-			return null;
-		}
+		OverlayUtil.renderTextLocation(graphics,
+			new Point(canvasLoc.getX(), canvasLoc.getY() - 35),
+			subText, Color.YELLOW);
 
-		Tile[][][] tiles = client.getScene().getTiles();
-		int plane = client.getPlane();
-
-		for (int x = 0; x < tiles[plane].length; x++)
-		{
-			for (int y = 0; y < tiles[plane][x].length; y++)
-			{
-				Tile tile = tiles[plane][x][y];
-				if (tile == null)
-				{
-					continue;
-				}
-
-				for (GameObject obj : tile.getGameObjects())
-				{
-					if (obj != null && obj.getId() == 9098)
-					{
-						return obj;
-					}
-				}
-			}
-		}
 		return null;
 	}
 }

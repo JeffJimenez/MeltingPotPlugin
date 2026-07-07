@@ -13,7 +13,7 @@ import net.runelite.client.ui.overlay.infobox.InfoBoxPriority;
 public class MeltingPotInfoBox extends InfoBox
 {
 	private final MeltingPotTrackerPlugin plugin;
-	private String contents = "Unknown - Check the melting pot in-game";
+	private String contents = "Not at Blast Furnace";
 	private Instant lastUpdate = null;
 	private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault());
 
@@ -34,7 +34,8 @@ public class MeltingPotInfoBox extends InfoBox
 	@Override
 	public String getText()
 	{
-		return "Pot";
+		int total = plugin.getTotalOreCount();
+		return total > 0 ? String.valueOf(total) : "Pot";
 	}
 
 	@Override
@@ -50,11 +51,11 @@ public class MeltingPotInfoBox extends InfoBox
 		sb.append("<html><b>Melting Pot Tracker</b><br/>");
 		if (lastUpdate != null)
 		{
-			sb.append("Last checked: ").append(TIME_FORMAT.format(lastUpdate)).append("<br/><br/>");
+			sb.append("Last updated: ").append(TIME_FORMAT.format(lastUpdate)).append("<br/><br/>");
 		}
 		sb.append("<b>Contents:</b><br/>");
 		sb.append(contents.replace("\n", "<br/>").replaceAll("(?i)(coal|ore)", "<font color='#FFA500'>$1</font>"));
-		sb.append("<br/><br/><i>Use 'Check' on the melting pot to update</i></html>");
+		sb.append("<br/><br/><i>Updated automatically from conveyor belt deposits</i></html>");
 		return sb.toString();
 	}
 
