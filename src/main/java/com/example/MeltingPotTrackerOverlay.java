@@ -15,6 +15,8 @@ import net.runelite.client.ui.overlay.OverlayUtil;
 
 public class MeltingPotTrackerOverlay extends Overlay
 {
+	private static final int LINE_HEIGHT = 15;
+
 	private final Client client;
 	private final MeltingPotTrackerConfig config;
 	private final MeltingPotTrackerPlugin plugin;
@@ -49,20 +51,21 @@ public class MeltingPotTrackerOverlay extends Overlay
 			return null;
 		}
 
-		String text = "Melting Pot";
-		String subText = plugin.getLastContentsShort();
-		if (subText == null || subText.isEmpty())
+		int y = canvasLoc.getY() - 50;
+
+		OverlayUtil.renderTextLocation(graphics,
+			new Point(canvasLoc.getX(), y),
+			"Melting Pot", Color.WHITE);
+
+		y -= LINE_HEIGHT;
+
+		for (String line : plugin.getContentLines())
 		{
-			subText = plugin.getTotalOreCount() + " ore";
+			OverlayUtil.renderTextLocation(graphics,
+				new Point(canvasLoc.getX(), y),
+				line, Color.YELLOW);
+			y -= LINE_HEIGHT;
 		}
-
-		OverlayUtil.renderTextLocation(graphics,
-			new Point(canvasLoc.getX(), canvasLoc.getY() - 50),
-			text, Color.WHITE);
-
-		OverlayUtil.renderTextLocation(graphics,
-			new Point(canvasLoc.getX(), canvasLoc.getY() - 35),
-			subText, Color.YELLOW);
 
 		return null;
 	}

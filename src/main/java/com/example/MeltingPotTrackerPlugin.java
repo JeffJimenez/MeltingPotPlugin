@@ -1,9 +1,9 @@
 package com.example;
 
 import com.google.inject.Provides;
-import java.awt.image.BufferedImage;
-import java.time.Instant;
+import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 import javax.inject.Inject;
 import lombok.Getter;
@@ -16,7 +16,6 @@ import net.runelite.api.events.GameObjectSpawned;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.VarbitChanged;
-import net.runelite.api.gameval.ItemID;
 import net.runelite.api.gameval.ObjectID;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
@@ -24,7 +23,6 @@ import net.runelite.client.game.ItemManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.overlay.OverlayManager;
-import net.runelite.client.ui.overlay.infobox.InfoBoxManager;
 
 @Slf4j
 @PluginDescriptor(
@@ -44,15 +42,10 @@ public class MeltingPotTrackerPlugin extends Plugin
 	private OverlayManager overlayManager;
 
 	@Inject
-	private InfoBoxManager infoBoxManager;
-
-	@Inject
 	private ItemManager itemManager;
 
 	@Inject
 	private MeltingPotTrackerOverlay overlay;
-
-	private MeltingPotInfoBox infoBox;
 
 	@Getter
 	private GameObject meltingPot;
@@ -63,15 +56,14 @@ public class MeltingPotTrackerPlugin extends Plugin
 	private final Map<MeltingPotOres, Integer> oreCounts = new EnumMap<>(MeltingPotOres.class);
 
 	@Getter
-	private String lastContents = "Not at Blast Furnace";
-
-	@Getter
-	private String lastContentsShort = "";
-
-	@Getter
 	private int totalOreCount;
 
-	private Instant lastUpdated = null;
+	private String[] contentLines = new String[0];
+
+	public String[] getContentLines()
+	{
+		return contentLines;
+	}
 
 	@Override
 	protected void startUp()
@@ -79,18 +71,6 @@ public class MeltingPotTrackerPlugin extends Plugin
 		log.info("Melting Pot Tracker started!");
 		overlayManager.add(overlay);
 		resetOreCounts();
-
-		if (config.showInfobox())
-		{
-			BufferedImage icon = itemManager.getImage(ItemID.COAL);
-			if (icon == null)
-			{
-				icon = new BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB);
-			}
-			infoBox = new MeltingPotInfoBox(icon, this, itemManager);
-			infoBoxManager.addInfoBox(infoBox);
-			updateInfoBox();
-		}
 	}
 
 	@Override
@@ -98,11 +78,6 @@ public class MeltingPotTrackerPlugin extends Plugin
 	{
 		log.info("Melting Pot Tracker stopped!");
 		overlayManager.remove(overlay);
-		if (infoBox != null)
-		{
-			infoBoxManager.removeInfoBox(infoBox);
-			infoBox = null;
-		}
 		meltingPot = null;
 		conveyorBelt = null;
 	}
@@ -146,9 +121,7 @@ public class MeltingPotTrackerPlugin extends Plugin
 
 		if (!isAtBlastFurnace())
 		{
-			lastContents = "Not at Blast Furnace";
-			lastContentsShort = "";
-			updateInfoBox();
+			contentLines = new String[0];
 		}
 	}
 
@@ -190,7 +163,7 @@ public class MeltingPotTrackerPlugin extends Plugin
 		}
 	}
 
-	private boolean isAtBlastFurnace()
+	public boolean isAtBlastFurnace()
 	{
 		return conveyorBelt != null || meltingPot != null;
 	}
@@ -204,8 +177,7 @@ public class MeltingPotTrackerPlugin extends Plugin
 
 		int total = 0;
 		boolean changed = false;
-		StringBuilder full = new StringBuilder();
-		StringBuilder shortSummary = new StringBuilder();
+		List<String> lines = new ArrayList<>();
 
 		for (MeltingPotOres ore : MeltingPotOres.values())
 		{
@@ -220,12 +192,7 @@ public class MeltingPotTrackerPlugin extends Plugin
 			{
 				total += amount;
 				String name = itemManager.getItemComposition(ore.getItemId()).getName();
-				full.append(name).append(": ").append(amount).append('\n');
-				if (shortSummary.length() > 0)
-				{
-					shortSummary.append(", ");
-				}
-				shortSummary.append(name).append(": ").append(amount);
+				lines.add(name + ": " + amount);
 			}
 		}
 
@@ -235,32 +202,17 @@ public class MeltingPotTrackerPlugin extends Plugin
 		}
 
 		totalOreCount = total;
-		lastUpdated = Instant.now();
 
 		if (total == 0)
 		{
-			lastContents = "Melting pot is empty";
-			lastContentsShort = "Empty";
+			contentLines = new String[]{"Empty"};
 		}
 		else
 		{
-			full.append("\nTotal: ").append(total);
-			lastContents = full.toString().trim();
-			lastContentsShort = shortSummary.length() > 60
-				? shortSummary.substring(0, 57) + "..."
-				: shortSummary.toString();
+			contentLines = lines.toArray(new String[0]);
 		}
 
-		updateInfoBox();
 		log.debug("Updated melting pot from varbits: {} total", total);
-	}
-
-	private void updateInfoBox()
-	{
-		if (infoBox != null)
-		{
-			infoBox.updateContents(lastContents, lastUpdated);
-		}
 	}
 
 	private void resetOreCounts()
@@ -271,14 +223,6 @@ public class MeltingPotTrackerPlugin extends Plugin
 			oreCounts.put(ore, 0);
 		}
 		totalOreCount = 0;
-	}
-
-	public void resetTracker()
-	{
-		resetOreCounts();
-		lastContents = isAtBlastFurnace() ? "Melting pot is empty" : "Not at Blast Furnace";
-		lastContentsShort = isAtBlastFurnace() ? "Empty" : "";
-		lastUpdated = null;
-		updateInfoBox();
+		contentLines = new String[0];
 	}
 }
