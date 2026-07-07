@@ -23,22 +23,11 @@ public interface MeltingPotTrackerConfig extends Config
 	@ConfigItem(
 		keyName = "showWorldOverlay",
 		name = "Show world overlay",
-		description = "Draws text and highlight on the melting pot object in the game world.",
+		description = "Draws text on the melting pot object in the game world.",
 		position = 1
 	)
 	default boolean showWorldOverlay()
 	{
 		return true;
-	}
-
-	@ConfigItem(
-		keyName = "highlightColor",
-		name = "Highlight color",
-		description = "Color for the melting pot highlight.",
-		position = 2
-	)
-	default java.awt.Color highlightColor()
-	{
-		return java.awt.Color.ORANGE;
 	}
 }

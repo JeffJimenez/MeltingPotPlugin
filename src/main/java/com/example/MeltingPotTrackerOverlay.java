@@ -3,7 +3,6 @@ package com.example;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Graphics2D;
-import java.awt.Rectangle;
 import javax.inject.Inject;
 import net.runelite.api.Client;
 import net.runelite.api.GameObject;
@@ -49,14 +48,6 @@ public class MeltingPotTrackerOverlay extends Overlay
 		{
 			return null;
 		}
-
-		Rectangle rect = new Rectangle(canvasLoc.getX() - 30, canvasLoc.getY() - 40, 60, 80);
-		java.awt.Polygon poly = new java.awt.Polygon();
-		poly.addPoint(rect.x, rect.y);
-		poly.addPoint(rect.x + rect.width, rect.y);
-		poly.addPoint(rect.x + rect.width, rect.y + rect.height);
-		poly.addPoint(rect.x, rect.y + rect.height);
-		OverlayUtil.renderPolygon(graphics, poly, config.highlightColor());
 
 		String text = "Melting Pot";
 		String subText = plugin.getLastContentsShort();
